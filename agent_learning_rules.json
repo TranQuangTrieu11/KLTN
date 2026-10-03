@@ -1,0 +1,32 @@
+{
+  "intents": [
+    {
+      "name": "bluetooth_headphones",
+      "triggers": ["tai nghe", "bluetooth", "headphone", "headphones", "earbud", "earbuds", "earphone", "headset", "anc", "noise cancelling", "chong on"],
+      "must_any": ["tai nghe", "headphone", "headphones", "earbud", "earbuds", "earphone", "earphones", "headset", "headsets"],
+      "boost_terms": ["bluetooth", "wireless", "anc", "noise", "canceling", "cancelling", "chong on", "micro", "mic", "sports", "gaming"],
+      "exclude_terms": ["adapter", "receiver", "transmitter", "speaker", "case", "cover", "cable", "charger", "earpads", "tui", "cap", "balo", "non", "mu", "ao", "quan"]
+    },
+    {
+      "name": "memory_card",
+      "triggers": ["the nho", "memory card", "microsd", "micro sd", "sd card", "sdxc", "tf card"],
+      "must_any": ["the nho", "memory card", "microsd", "micro sd", "sd card", "sdxc", "sdhc", "tf card"],
+      "boost_terms": ["64gb", "128gb", "256gb", "uhs", "u3", "v30", "camera", "video", "photo", "storage"],
+      "exclude_terms": ["reader only", "case", "adapter only", "holder"]
+    },
+    {
+      "name": "study_desk_setup",
+      "triggers": ["setup ban hoc", "ban hoc", "goc hoc tap", "desk setup", "study desk", "ban lam viec"],
+      "must_any": ["ban hoc", "desk", "table", "lamp", "den hoc", "keyboard", "mouse", "monitor stand", "ke laptop", "gia do", "usb fan"],
+      "boost_terms": ["setup", "study", "desk", "computer", "mini", "fold", "led", "ergonomic", "portable", "office"],
+      "exclude_terms": ["shirt", "dress", "belt", "son", "makeup", "toy", "tui", "cap", "sandal", "dep", "kinh", "manocanh", "dau manocanh"]
+    },
+    {
+      "name": "smart_home",
+      "triggers": ["do gia dung thong minh", "smart home", "nha thong minh", "alexa", "robot hut bui", "wifi"],
+      "must_any": ["wifi", "alexa", "robot", "vacuum", "plug", "camera", "home", "gia dung", "nha thong minh", "lau nha", "kitchen", "appliance", "cleaner"],
+      "boost_terms": ["automation", "app", "remote", "sensor", "cleaner", "security", "kitchen"],
+      "exclude_terms": ["fashion", "belt", "shirt", "earbuds", "tui", "vi", "cap", "my pham", "hoc tap", "sandal"]
+    }
+  ]
+}

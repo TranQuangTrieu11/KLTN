@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.runtime/
+.browser-test/
+tmp*/
+agent_state.sqlite3*
+chat_history.json
+research/data/*
+!research/data/README.md
+.env
+.env.*
+!.env.example
+*.pem
+*.key
