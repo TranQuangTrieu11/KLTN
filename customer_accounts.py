@@ -16,7 +16,37 @@ class Accounts:
             CREATE TABLE IF NOT EXISTS logins(token TEXT PRIMARY KEY, user TEXT, expires REAL);
             CREATE TABLE IF NOT EXISTS ownership(session TEXT PRIMARY KEY, user TEXT);
             CREATE TABLE IF NOT EXISTS favorites(user TEXT, product TEXT, PRIMARY KEY(user,product));
+            CREATE TABLE IF NOT EXISTS admins(email TEXT PRIMARY KEY, salt TEXT, password TEXT);
+            CREATE TABLE IF NOT EXISTS admin_logins(token TEXT PRIMARY KEY, email TEXT, expires REAL);
             ''')
+
+    def provision_admin(self, email, password):
+        email = email.strip().lower()
+        if not email or len(email) > 254 or not isinstance(password, str) or not 1 <= len(password) <= 1024:
+            raise ValueError('Tên đăng nhập và mật khẩu quản trị là bắt buộc.')
+        salt = secrets.token_hex(16)
+        hashed = hashlib.pbkdf2_hmac('sha256', password.encode(), bytes.fromhex(salt), 200000).hex()
+        with self.engine.connect() as db:
+            db.execute('INSERT OR REPLACE INTO admins VALUES (?,?,?)', (email, salt, hashed))
+            db.execute('DELETE FROM admin_logins WHERE email=?', (email,))
+
+    def admin_user(self, token):
+        with self.engine.connect() as db:
+            row = db.execute('SELECT email FROM admin_logins WHERE token=? AND expires>?', (token, time.time())).fetchone()
+        return row[0] if row else None
+
+    def admin_login(self, payload):
+        email = str(payload.get('email', '')).strip().lower()
+        password = payload.get('password', '')
+        if not isinstance(password, str) or not 1 <= len(password) <= 1024:
+            raise ValueError('Email hoặc mật khẩu quản trị không đúng.')
+        with self.engine.connect() as db:
+            row = db.execute('SELECT salt,password FROM admins WHERE email=?', (email,)).fetchone()
+            if not row or not hmac.compare_digest(hashlib.pbkdf2_hmac('sha256', password.encode(), bytes.fromhex(row[0]), 200000).hex(), row[1]):
+                raise ValueError('Email hoặc mật khẩu quản trị không đúng.')
+            token = secrets.token_urlsafe(32)
+            db.execute('INSERT INTO admin_logins VALUES (?,?,?)', (token, email, time.time()+28800))
+        return {'token': token, 'email': email}
 
     def user(self, token):
         with self.engine.connect() as db:

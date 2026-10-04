@@ -95,12 +95,13 @@ async function details(id) {
 async function search(kind) {
   const prefix=kind==='reviews'?'review':'search',target=$(prefix+'results'),form=$(prefix+'form');
   const submit=form.querySelector('button');submit.disabled=true;target.innerHTML='<p class="empty">Mình đang tìm sản phẩm…</p>';
-  try{const data=await api('/api/search?q='+encodeURIComponent($(prefix+'query').value));target.replaceChildren();if(!data.items.length){target.innerHTML='<p class="empty">Chưa có sản phẩm phù hợp. Bạn thử tên ngắn hơn hoặc thay khoảng giá nhé.</p>';return;}data.items.slice(0,5).forEach((p,i)=>target.append(card(p,i)));}catch(error){target.textContent=error.message;}finally{submit.disabled=false;}
+  try{const data=await api('/api/search?'+new URLSearchParams({q:$(prefix+'query').value,source:$(prefix+'source').value}));target.replaceChildren();if(!data.items.length){target.innerHTML='<p class="empty">Chưa có sản phẩm phù hợp. Bạn thử tên ngắn hơn hoặc thay khoảng giá nhé.</p>';return;}data.items.slice(0,5).forEach((p,i)=>target.append(card(p,i)));}catch(error){target.textContent=error.message;}finally{submit.disabled=false;}
 }
 async function history(){const data=await api('/api/history?session_id='+encodeURIComponent(session));$('messages').innerHTML=data.items.length?'':welcome;for(const turn of data.items){userMessage(turn.user);renderAnswer(turn.answer);}}
 async function account(){
-  if(!token){$('auth').hidden=false;$('profile').hidden=true;$('sessions').replaceChildren();return;}
+  if(!token){$('signedin').hidden=true;$('signedin').textContent='';$('auth').hidden=false;$('profile').hidden=true;$('sessions').replaceChildren();return;}
   const data=await api('/api/account');$('auth').hidden=true;$('profile').hidden=false;$('email').textContent=data.email;$('name').value=data.profile.name||'';$('preferences').value=data.profile.preferences||'';$('favorites').replaceChildren();
+  $('signedin').textContent=data.profile.name||data.email;$('signedin').hidden=false;
   data.favorites.forEach(p=>{const row=document.createElement('div');row.className='favorites-row';const title=document.createElement('p');title.textContent=p.name;row.append(title,button('Xem sản phẩm',()=>{$('accountdialog').close();return details(p.product_id);}),button('Bỏ lưu',async()=>{await api('/api/account/favorite',{product_id:p.product_id,remove:true});await account();}));$('favorites').append(row);});
   $('sessions').replaceChildren();data.sessions.forEach((s,i)=>$('sessions').append(button('Hội thoại '+(i+1),async()=>{if(busy)return;session=s;sessionStorage.setItem('chat_session',s);$('accountdialog').close();view('chat');await history();})));
 }
@@ -112,7 +113,43 @@ $('searchform').onsubmit=event=>{event.preventDefault();search('search');};$('re
 $('close').onclick=()=>{++detailVersion;$('detail').close();};$('accountopen').onclick=()=>$('accountdialog').showModal();$('accountclose').onclick=()=>$('accountdialog').close();
 $('auth').onsubmit=async event=>{event.preventDefault();try{const data=await api('/api/account/'+event.submitter.value,Object.fromEntries(new FormData(event.target)));token=data.token;session=data.session_id;sessionStorage.setItem('account_token',token);sessionStorage.setItem('chat_session',session);event.target.reset();$('accountnotice').textContent='Bạn đã đăng nhập.';await account();await history();}catch(error){$('accountnotice').textContent=error.message;}};
 $('new').onclick=async()=>{if(busy)return;try{session=token?(await api('/api/account/session',{})).session_id:newId();sessionStorage.setItem('chat_session',session);$('messages').innerHTML=welcome;await account();$('query').focus();}catch(error){notice(error);}};
-$('save').onclick=async()=>{try{await api('/api/account/profile',{name:$('name').value,preferences:$('preferences').value});$('accountnotice').textContent='Đã lưu hồ sơ.';}catch(error){$('accountnotice').textContent=error.message;}};
+$('save').onclick=async()=>{try{await api('/api/account/profile',{name:$('name').value,preferences:$('preferences').value});await account();$('accountnotice').textContent='Đã lưu hồ sơ.';}catch(error){$('accountnotice').textContent=error.message;}};
 $('logout').onclick=async()=>{try{await api('/api/account/logout',{});token='';sessionStorage.removeItem('account_token');session=newId();sessionStorage.setItem('chat_session',session);$('messages').innerHTML=welcome;await account();$('accountnotice').textContent='Bạn đã đăng xuất.';}catch(error){$('accountnotice').textContent=error.message;}};
 async function status(){try{const data=await api('/api/status');$('status').textContent=data.loaded?'Mình sẽ chọn tối đa 5 sản phẩm để bạn dễ cân nhắc.':'Danh sách sản phẩm đang chuẩn bị…';if(!data.loaded)setTimeout(status,2000);}catch(error){notice(error);}}status();
 account().then(history).catch(error=>{if(error.status===401){token='';sessionStorage.removeItem('account_token');session=newId();sessionStorage.setItem('chat_session',session);account();$('messages').innerHTML=welcome;}else notice(error);});
+let catalogPage=1,catalogVersion=0;
+async function catalog(){
+ const version=++catalogVersion;
+ document.querySelectorAll('[data-source]').forEach(b=>b.classList.toggle('active',b.dataset.source===$('catalogsource').value));
+ $('catalogcount').textContent='Đang tải danh sách…';
+ const params=new URLSearchParams({page:catalogPage,q:$('catalogquery').value,source:$('catalogsource').value,category:$('catalogcategory').value});
+ try{
+  const data=await api('/api/catalog?'+params);if(version!==catalogVersion)return;
+  catalogPage=data.page;
+  const category=$('catalogcategory').value;
+  $('catalogcategory').replaceChildren(new Option('Tất cả danh mục',''),...data.categories.map(c=>new Option(c,c)));
+  $('catalogcategory').value=category;
+  $('catalogcount').textContent=new Intl.NumberFormat('vi-VN').format(data.total)+' sản phẩm';
+  $('catalogitems').replaceChildren();
+  for(const p of data.items){
+   const row=document.createElement('article');row.className='catalog-item';row.dataset.productId=p.product_id;
+   const title=document.createElement('p');title.textContent=p.name;title.title=p.name;
+   const meta=document.createElement('small');meta.textContent=(p.source||'')+' · '+price(p);
+   const actions=document.createElement('div');actions.className='actions';
+   actions.append(button('Xem',()=>details(p.product_id)),button('Hỏi về mẫu này',()=>{view('chat');return chat('Cho tôi thông tin và đánh giá về '+p.name,{product_id:p.product_id});}));
+   row.append(title,meta,actions);$('catalogitems').append(row);
+  }
+  if(!data.items.length){const empty=document.createElement('p');empty.textContent='Không có mẫu trong bộ lọc này. Chọn danh mục hoặc sàn khác để xem thêm.';$('catalogitems').append(empty);}
+  $('catalogpage').textContent=data.page+' / '+data.pages;
+  $('catalogprev').disabled=data.page<=1;$('catalognext').disabled=data.page>=data.pages;
+ }catch(error){if(version!==catalogVersion)return;$('catalogcount').textContent=error.message;if(error.status===503)setTimeout(catalog,2000);}
+}
+$('catalogform').onsubmit=event=>{event.preventDefault();catalogPage=1;catalog();};
+$('catalogsource').onchange=()=>{$('catalogcategory').value='';catalogPage=1;catalog();};
+$('catalogcategory').onchange=()=>{catalogPage=1;catalog();};
+$('catalogprev').onclick=()=>{catalogPage=Math.max(1,catalogPage-1);catalog();};
+$('catalognext').onclick=()=>{catalogPage++;catalog();};
+$('signedin').onclick=()=>$('accountdialog').showModal();
+catalog();
+
+document.querySelectorAll('[data-source]').forEach(b=>b.onclick=()=>{$('catalogsource').value=b.dataset.source;$('catalogsource').onchange();});

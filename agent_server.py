@@ -582,7 +582,8 @@ class AgentHandler(SimpleHTTPRequestHandler):
 
     def admin_allowed(self):
         token = os.environ.get('AGENT_ADMIN_TOKEN', '')
-        return bool(token) and hmac.compare_digest(self.headers.get('Authorization', ''), 'Bearer ' + token)
+        authorization = self.headers.get('Authorization', '')
+        return (bool(token) and hmac.compare_digest(authorization, 'Bearer ' + token)) or bool(Accounts(EXTENSIONS).admin_user(authorization.removeprefix('Bearer ')))
 
     def end_json(self, payload, status=200):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -626,9 +627,11 @@ class AgentHandler(SimpleHTTPRequestHandler):
             return
         if parsed.path.startswith('/api/admin/'):
             if not self.admin_allowed():
-                self.end_json({'error': 'Cần AGENT_ADMIN_TOKEN và Bearer token.'}, 403)
+                self.end_json({'error': 'Cần đăng nhập tài khoản quản trị.'}, 403)
                 return
-            if parsed.path == '/api/admin/edits':
+            if parsed.path == '/api/admin/session':
+                self.end_json({'email': accounts.admin_user(self.headers.get('Authorization', '').removeprefix('Bearer ')) or 'Quản trị viên'})
+            elif parsed.path == '/api/admin/edits':
                 self.end_json({'items': EXTENSIONS.edits()})
             elif parsed.path == '/api/admin/metrics':
                 self.end_json(EXTENSIONS.metrics())
@@ -654,6 +657,12 @@ class AgentHandler(SimpleHTTPRequestHandler):
             return
         if parsed.path == '/api/search':
             query = parse_qs(parsed.query).get('q', [''])[0]
+            source = parse_qs(parsed.query).get('source', [''])[0].lower().replace('shoppe', 'shopee')
+            if source and source not in {'amazon', 'tiki', 'shopee'}:
+                self.end_json({'error': 'Sàn không hợp lệ.'}, 400)
+                return
+            if source:
+                query = re.sub(r'\b(?:amazon|tiki|shopee|shoppe)\b', '', query, flags=re.I).strip() + ' ' + source if query.strip() else ''
             if not query.strip():
                 self.end_json({'items': [], 'message': 'Nhập tên sản phẩm bạn muốn tìm.'})
             elif not STATE['loaded']:
@@ -663,6 +672,32 @@ class AgentHandler(SimpleHTTPRequestHandler):
                 for p in products:
                     ENRICHMENT.queue(p['product_id'])
                 self.end_json({'items': products})
+            return
+        if parsed.path == '/api/catalog':
+            if not STATE['loaded']:
+                self.end_json({'error': 'Danh sách sản phẩm đang chuẩn bị.'}, 503)
+                return
+            params = parse_qs(parsed.query)
+            source = params.get('source', [''])[0].lower().replace('shoppe', 'shopee')
+            if source and source not in {'amazon', 'tiki', 'shopee'}:
+                self.end_json({'error': 'Sàn không hợp lệ.'}, 400)
+                return
+            category = params.get('category', [''])[0]
+            query = normalize(params.get('q', [''])[0])
+            try:
+                page = max(1, int(params.get('page', ['1'])[0]))
+            except ValueError:
+                self.end_json({'error': 'Trang không hợp lệ.'}, 400)
+                return
+            rows = STATE['products']
+            source_rows = [r for r in rows if not source or r.get('source') == source]
+            categories = sorted({r.get('category') for r in source_rows if r.get('category')})
+            matching = [r for r in source_rows if (not category or r.get('category') == category) and (not query or query in (r.get('_search') or normalize(r.get('product_name', ''))))]
+            page_size = 20
+            pages = max(1, (len(matching)+page_size-1)//page_size)
+            page = min(page, pages)
+            edits = EXTENSIONS.edits()
+            self.end_json({'items': [format_product(EXTENSIONS.overlay(r, edits), 0) for r in matching[(page-1)*page_size:page*page_size]], 'total': len(matching), 'page': page, 'pages': pages, 'categories': categories})
             return
         if parsed.path == "/api/top-products":
             self.end_json({
@@ -705,6 +740,12 @@ class AgentHandler(SimpleHTTPRequestHandler):
         accounts = Accounts(EXTENSIONS)
         token = self.headers.get('Authorization', '').removeprefix('Bearer ')
         user = accounts.user(token)
+        if parsed.path == '/api/admin/login':
+            try:
+                self.end_json(accounts.admin_login(payload))
+            except ValueError as exc:
+                self.end_json({'error': str(exc)}, 401)
+            return
         if parsed.path.startswith('/api/account/'):
             action = parsed.path.rsplit('/', 1)[1]
             try:
@@ -734,7 +775,11 @@ class AgentHandler(SimpleHTTPRequestHandler):
                 self.end_json({'error': 'Cần token quản trị.'}, 403)
                 return
             try:
-                if parsed.path == '/api/admin/edits':
+                if parsed.path == '/api/admin/logout':
+                    with EXTENSIONS.connect() as db:
+                        db.execute('DELETE FROM admin_logins WHERE token=?', (token,))
+                    result = {'ok': True}
+                elif parsed.path == '/api/admin/edits':
                     result = EXTENSIONS.create_edit(payload)
                 elif parsed.path == '/api/admin/preview':
                     result = EXTENSIONS.preview(payload.get('edit_id'))

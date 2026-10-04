@@ -101,14 +101,15 @@ Thiết bị cùng mạng truy cập `http://<IP-máy-chạy-app>:8781/`. Cho ph
 
 ### 4. Mở trang quản trị
 
-Đặt token trước khi khởi động server:
+Tạo tài khoản quản trị trên máy chạy app (nhập mật khẩu khi được hỏi):
 
 ```powershell
-$env:AGENT_ADMIN_TOKEN = 'thay-bang-token-rieng'
-python agent_server.py
+python setup_admin.py --username admin
 ```
 
-Mở **http://127.0.0.1:8781/admin.html**, nhập cùng token rồi tải dữ liệu.
+Mở **Quản trị** trên thanh điều hướng hoặc truy cập **http://127.0.0.1:8781/admin.html**, đăng nhập bằng tên tài khoản và mật khẩu vừa tạo. Tài khoản quản trị được cấp riêng; đăng ký tài khoản khách hàng không cấp quyền admin. Phiên quản trị có thời hạn 8 giờ; có thể đăng xuất trên trang quản trị. Chạy lại lệnh thiết lập để đặt lại mật khẩu khi cần.
+
+Admin có nhiệm vụ kiểm tra sản phẩm/review và nguồn dữ liệu, tạo chỉnh sửa thông tin có bằng chứng, xem trước kết quả trước/sau, kích hoạt hoặc hoàn tác phiên bản, xem nhật ký và thống kê hệ thống. Bảng nhiệm vụ được hiển thị ngay sau khi đăng nhập.
 
 ## Hướng dẫn sử dụng app
 
@@ -149,6 +150,7 @@ agent_server.py             HTTP server, tìm kiếm và đọc dữ liệu
 agent_extensions.py         Ngữ cảnh, hội thoại, chỉnh sửa và thống kê
 conversation_context.py     Xử lý câu hỏi nối tiếp và thay bộ lọc
 customer_accounts.py        Tài khoản, hồ sơ và yêu thích
+setup_admin.py              Tạo hoặc đặt lại tài khoản quản trị
 product_enrichment.py       Bổ sung ảnh/review có nguồn
 import_amazon_images.py     Nhập ảnh Amazon theo ASIN
 import_product_prices.py    Nhập giá có nguồn từ CSV
@@ -168,6 +170,12 @@ start_lan.bat               Chạy để test trong mạng LAN
 `agent_state.sqlite3`, `chat_history.json`, dataset và file tạm được quản lý tại máy chạy. Sao lưu `agent_state.sqlite3` cùng `research/data/` để giữ trạng thái và dữ liệu dự án.
 
 ## Dữ liệu và tiện ích
+
+### Giá Shopee dùng cho demo
+
+Bản demo tại máy phát triển sử dụng giá Shopee giả lập để kiểm tra giao diện, lựa chọn sản phẩm và bộ lọc ngân sách. Đây là dữ liệu kiểm thử, không dùng để đánh giá giá bán thực tế. Nguồn giả lập được ghi trong lịch sử Knowledge Editing; có thể tắt hoặc hoàn tác tại trang quản trị. CSV gốc được giữ nguyên.
+
+Để tạo lại giá demo trên máy mới, chạy `python seed_demo_prices.py --apply`. Lệnh chỉ bổ sung cho sản phẩm Shopee chưa có giá và chưa có chỉnh sửa giá/tiền tệ đang hoạt động. File xuất nằm ở `.runtime/shopee_demo_prices.csv`.
 
 Catalog gồm **164.926 sản phẩm**: 121.917 Amazon, 41.575 Tiki và 1.434 Shopee. Ảnh Amazon được ghép theo ASIN từ metadata nguồn; lần nhập trên máy phát triển ghi nhận **121.902 sản phẩm có ảnh**. Ảnh/review Tiki được bổ sung theo mã sản phẩm và lưu nguồn cùng thời điểm truy xuất.
 
