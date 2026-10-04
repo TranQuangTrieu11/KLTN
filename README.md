@@ -1,47 +1,143 @@
 # Chatbot tư vấn mua sắm
 
-Ứng dụng tiếng Việt giúp tìm sản phẩm trên Amazon, Shopee và Tiki, chọn tối đa 5 sản phẩm phù hợp, đọc đánh giá, so sánh và hỏi tiếp theo ngữ cảnh hội thoại.
+Ứng dụng tư vấn mua sắm bằng tiếng Việt, hỗ trợ tìm sản phẩm trên Amazon, Shopee và Tiki, đề xuất tối đa 5 lựa chọn, xem đánh giá và hỏi tiếp theo ngữ cảnh. Dự án gồm ứng dụng web, quản lý tri thức bằng Knowledge Editing và các notebook nghiên cứu hệ thống khuyến nghị.
 
-## Chạy ứng dụng
+## Chức năng
 
-Yêu cầu **Python 3.10 trở lên**. Backend dùng thư viện chuẩn Python, không cần cài thư viện để chạy các chức năng hiện tại.
+| Nhóm | Chức năng hiện có |
+| --- | --- |
+| Hội thoại | Giữ danh sách vừa đề xuất, tham chiếu sản phẩm theo thứ tự, chọn mẫu phù hợp trong danh sách, giải thích lựa chọn và thay đổi điều kiện ở lượt tiếp theo. |
+| Tìm kiếm | Tìm theo mô tả; lọc loại sản phẩm, ngân sách, tiền tệ, thương hiệu, sàn và dung lượng; xử lý yêu cầu loại trừ thương hiệu hoặc sàn. |
+| Thông tin sản phẩm | Hiển thị ảnh, giá ghi nhận, thương hiệu, điểm và số lượt đánh giá; xem chi tiết, review, so sánh và sản phẩm tương tự. |
+| Tài khoản | Đăng ký, đăng nhập, đăng xuất; lưu lịch sử hội thoại, sản phẩm yêu thích và tùy chọn cá nhân. |
+| Quản trị | Tra cứu sản phẩm/review, xem nhật ký xử lý và thống kê hoạt động. |
+| Knowledge Editing | Tạo chỉnh sửa có bằng chứng, xem trước kết quả trước/sau, kích hoạt, theo dõi phiên bản và hoàn tác. |
+| Bổ sung dữ liệu | Nhập ảnh Amazon theo ASIN, bổ sung ảnh/review Tiki theo mã sản phẩm và nhập giá có nguồn từ CSV. |
 
-Nếu tải từ GitHub, chuẩn bị `research/data/products.csv` và `research/data/reviews.csv` trước theo [hướng dẫn dữ liệu](research/data/README.md). Dataset lớn, cơ sở dữ liệu tài khoản/cache và lịch sử chat riêng không được đưa lên repository. Ảnh Amazon cần được nhập lại bằng lệnh ở phần bên dưới.
+## Kiến trúc hệ thống
 
-Trên Windows, mở **`start_local.bat`**, rồi truy cập:
+Sơ đồ mô tả luồng xử lý của ứng dụng đang chạy. Các notebook nghiên cứu được tổ chức riêng để thực nghiệm và đánh giá.
 
-**http://127.0.0.1:8781/**
+```mermaid
+flowchart TD
+    U[Khách hàng] --> UI[Giao diện web]
+    A[Quản trị viên] --> ADM[Trang quản trị]
+    UI --> API[HTTP API Python]
+    ADM --> API
+    API --> ACCOUNT[Tài khoản và phân quyền]
+    API --> CHAT[Điều phối hội thoại]
+    CHAT --> CTX[Ngữ cảnh phiên và bộ lọc]
+    CTX --> SEARCH[Tìm kiếm và xếp hạng]
+    CHAT --> DETAIL[Chi tiết, review và so sánh]
+    SEARCH --> KE[Lớp chỉnh sửa tri thức]
+    DETAIL --> KE
+    KE --> CSV[Catalog và review CSV]
+    KE --> DB[(SQLite)]
+    ACCOUNT --> DB
+    CHAT --> DB
+    DETAIL --> ENRICH[Bổ sung ảnh và review có nguồn]
+    ENRICH --> DB
+    CHAT --> ANSWER[Câu trả lời và thẻ sản phẩm]
+    ANSWER --> UI
+    API --> LOG[Nhật ký và thống kê]
+    LOG --> DB
+    N[Notebook nghiên cứu] --> ART[Dữ liệu xử lý và artifact thực nghiệm]
+```
 
-Hoặc chạy trong thư mục dự án:
+### Mô tả từng thành phần
+
+| Thành phần | Vai trò |
+| --- | --- |
+| Giao diện khách hàng | Tổ chức các mục Trò chuyện, Tìm sản phẩm, Xem đánh giá và Tài khoản; hiển thị hội thoại, thẻ sản phẩm và nguồn thông tin. |
+| HTTP API | Tiếp nhận yêu cầu từ trình duyệt, cung cấp dữ liệu sản phẩm và điều phối chức năng khách hàng/quản trị. |
+| Điều phối hội thoại | Xác định thao tác tìm kiếm, xem review, so sánh hoặc chọn trong danh sách sản phẩm của phiên. |
+| Ngữ cảnh phiên | Lưu điều kiện tìm kiếm, danh sách vừa xem và sản phẩm đang tham chiếu; cập nhật bộ lọc theo câu hỏi nối tiếp. |
+| Tìm kiếm và xếp hạng | Áp dụng bộ lọc trước khi tính điểm và trả tối đa 5 sản phẩm phù hợp theo dữ liệu. |
+| Chi tiết và review | Ghép thông tin theo mã sản phẩm, đọc review từ bộ nhớ đệm và chuẩn bị dữ liệu cho câu trả lời. |
+| Knowledge Editing | Áp dụng chỉnh sửa đang kích hoạt khi truy xuất; lưu bằng chứng, phiên bản và sự kiện thay đổi. |
+| Tài khoản | Băm mật khẩu có salt, quản lý phiên đăng nhập và kiểm tra quyền truy cập lịch sử, hồ sơ, yêu thích. |
+| Bổ sung dữ liệu | Lấy ảnh/review theo định danh sản phẩm, lưu nguồn và thời điểm; hỗ trợ nhập giá có nguồn. |
+| SQLite | Lưu trạng thái ứng dụng, tài khoản, hội thoại, chỉnh sửa, nhật ký và bộ nhớ đệm. |
+| Notebook nghiên cứu | Thực nghiệm chuẩn bị dữ liệu, embeddings, FAISS/RAG, collaborative filtering, BPR, khuyến nghị kết hợp, LLM và Knowledge Editing. |
+
+## Cách chạy app
+
+### 1. Chuẩn bị
+
+- Python **3.10 trở lên**.
+- Đặt `products.csv` và `reviews.csv` trong `research/data/` theo [hướng dẫn dữ liệu](research/data/README.md).
+- Backend dùng thư viện chuẩn Python. Tiện ích nhập ảnh và kiểm thử trình duyệt có phụ thuộc riêng được hướng dẫn bên dưới.
+
+Tải mã nguồn:
+
+```powershell
+git clone https://github.com/TranQuangTrieu11/KLTN.git
+cd KLTN
+```
+
+### 2. Chạy trên máy cá nhân
+
+Trên Windows, mở `start_local.bat`, hoặc chạy:
 
 ```powershell
 python agent_server.py
 ```
 
-Chờ dữ liệu nạp xong trước khi tìm kiếm. Lần chạy đầu cần chuẩn bị bộ nhớ đệm review; những lần sau dùng bộ nhớ đệm đã lưu. Nhấn **Ctrl+F5** nếu trình duyệt còn hiển thị giao diện cũ. Dừng app bằng **Ctrl+C** trong cửa sổ chạy server.
+Truy cập **http://127.0.0.1:8781/**. Chờ nạp dữ liệu hoàn tất trước khi tìm kiếm. Lần đầu hệ thống chuẩn bị bộ nhớ đệm review; những lần sau sử dụng dữ liệu đã lưu.
 
-Để test từ thiết bị cùng mạng, dùng `start_lan.bat`. Server in địa chỉ LAN khi khởi chạy. Đừng chạy đồng thời hai file BAT trên cùng cổng.
+Khi chạy từ terminal, nhấn **Ctrl+C** để dừng. Nhấn **Ctrl+F5** trong trình duyệt để tải lại giao diện sau khi cập nhật mã nguồn.
 
-## Cách sử dụng
+### 3. Chạy trong mạng LAN
 
-- **Trò chuyện:** nhập loại sản phẩm, ngân sách, sàn hoặc thương hiệu. Enter gửi; Shift+Enter xuống dòng.
-- **Hỏi tiếp:** “review sản phẩm số 2”, “so sánh 1 và 2”, “còn loại 128GB”, “dưới 500k”, “chỉ lấy Tiki”.
-- **Sản phẩm tương tự:** bấm dưới mẫu cần tham chiếu. Kết quả không gồm mẫu gốc.
-- **Tìm sản phẩm / Xem đánh giá:** tìm kiếm độc lập, không cần đăng nhập.
-- **Tài khoản:** đăng ký với mật khẩu ít nhất 10 ký tự để lưu hội thoại, hồ sơ và sản phẩm yêu thích.
+Mở `start_lan.bat`, hoặc cấu hình:
 
-## Quản trị và Knowledge Editing
+```powershell
+$env:AGENT_HOST = '0.0.0.0'
+$env:AGENT_PORT = '8781'
+python agent_server.py
+```
 
-Đặt token riêng trước khi chạy server:
+Thiết bị cùng mạng truy cập `http://<IP-máy-chạy-app>:8781/`. Cho phép cổng tương ứng qua tường lửa khi cần. Mỗi cổng sử dụng một tiến trình server.
+
+### 4. Mở trang quản trị
+
+Đặt token trước khi khởi động server:
 
 ```powershell
 $env:AGENT_ADMIN_TOKEN = 'thay-bang-token-rieng'
 python agent_server.py
 ```
 
-Mở **http://127.0.0.1:8781/admin.html**, nhập cùng token rồi tải dữ liệu. Trang quản trị cho phép xem sản phẩm/review, nhật ký và thống kê; tạo bản chỉnh sửa, xem trước kết quả trước/sau, kích hoạt hoặc hoàn tác.
+Mở **http://127.0.0.1:8781/admin.html**, nhập cùng token rồi tải dữ liệu.
 
-Bản chỉnh sửa áp dụng khi truy xuất, không sửa CSV gốc hoặc trọng số mô hình. Giá trị mới cần lý do và nguồn bằng chứng. Với thử nghiệm, ghi rõ **dữ liệu giả lập**.
+## Hướng dẫn sử dụng app
+
+### Trò chuyện và tìm sản phẩm
+
+1. Mở **Trò chuyện**, nhập nhu cầu, ví dụ: “Thẻ nhớ microSD 64GB dưới 20 USD”.
+2. Xem tối đa 5 sản phẩm kèm giá, ảnh và đánh giá.
+3. Hỏi tiếp: “Sản phẩm nào tốt nhất trong 5 cái bạn vừa gửi?”, “Vì sao bạn chọn nó?” hoặc “Review sản phẩm số 2”.
+4. Điều chỉnh nhu cầu: “Còn loại 128GB”, “Dưới 30 USD” hoặc “Không lấy hãng Kingston”.
+5. Yêu cầu “So sánh 1 và 2” để đối chiếu các mẫu trong danh sách.
+
+**Enter** gửi câu hỏi; **Shift+Enter** xuống dòng. Mỗi phiên giữ ngữ cảnh riêng.
+
+### Chi tiết, review và sản phẩm tương tự
+
+- Bấm **Chi tiết và đánh giá** để xem thông tin cùng review theo mã sản phẩm.
+- Bấm **Sản phẩm tương tự** để tìm lựa chọn cùng nhóm, có xét điều kiện tìm kiếm hiện tại.
+- Dùng **Tìm sản phẩm** để tra cứu độc lập và **Xem đánh giá** để tìm sản phẩm cần đọc review.
+- Mở phần nguồn thông tin để đối chiếu dữ liệu được sử dụng trong câu trả lời.
+
+### Tài khoản và yêu thích
+
+Mở **Tài khoản**, đăng ký bằng email và mật khẩu ít nhất 10 ký tự. Sau khi đăng nhập, có thể lưu sản phẩm yêu thích, xem lịch sử, chọn phiên trò chuyện và cập nhật hồ sơ/tùy chọn cá nhân. Đăng xuất khi kết thúc trên thiết bị dùng chung.
+
+### Chỉnh sửa tri thức
+
+Trong trang quản trị, chọn sản phẩm và trường cần cập nhật, nhập giá trị mới, lý do và nguồn bằng chứng. Xem trước câu trả lời trước/sau, sau đó kích hoạt chỉnh sửa. Có thể theo dõi phiên bản và hoàn tác.
+
+Ví dụ thực hành: dùng dữ liệu giả lập để đổi giá từ `16.99 USD` thành `15.99 USD`, xem trước thay đổi rồi kích hoạt. Ghi rõ bằng chứng là **dữ liệu giả lập**. Chỉnh sửa được lưu riêng và áp dụng khi truy xuất.
 
 ## Cấu trúc dự án
 
@@ -51,9 +147,11 @@ admin.html                  Trang quản trị
 app.css / app.js            Giao diện và thao tác khách hàng
 agent_server.py             HTTP server, tìm kiếm và đọc dữ liệu
 agent_extensions.py         Ngữ cảnh, hội thoại, chỉnh sửa và thống kê
-conversation_context.py     Hiểu câu hỏi nối tiếp và thay bộ lọc
+conversation_context.py     Xử lý câu hỏi nối tiếp và thay bộ lọc
 customer_accounts.py        Tài khoản, hồ sơ và yêu thích
 product_enrichment.py       Bổ sung ảnh/review có nguồn
+import_amazon_images.py     Nhập ảnh Amazon theo ASIN
+import_product_prices.py    Nhập giá có nguồn từ CSV
 agent_learning_rules.json   Quy tắc nhận biết nhóm sản phẩm
 agent_state.sqlite3         Tài khoản, hội thoại, chỉnh sửa và cache
 chat_history.json           Lịch sử cũ được giữ để tham khảo
@@ -64,54 +162,56 @@ test_agent_extensions.py    Kiểm thử backend
 test_browser_smoke.py       Kiểm tra thao tác trên trình duyệt
 start_local.bat             Chạy trên máy cá nhân
 start_lan.bat               Chạy để test trong mạng LAN
-.runtime/                  Log và ảnh kiểm tra tạm
+.runtime/                   Log và ảnh kiểm tra tạm
 ```
 
-Không xoá `agent_state.sqlite3` nếu cần giữ tài khoản, hội thoại và lịch sử chỉnh sửa. Sao lưu file này cùng `research/data/` khi sao lưu dự án. Log và ảnh trong `.runtime/` có thể dọn sau khi dừng các tiến trình đang sử dụng chúng.
+`agent_state.sqlite3`, `chat_history.json`, dataset và file tạm được quản lý tại máy chạy. Sao lưu `agent_state.sqlite3` cùng `research/data/` để giữ trạng thái và dữ liệu dự án.
 
-## Dữ liệu và giới hạn hiện tại
+## Dữ liệu và tiện ích
 
-Dữ liệu gốc gồm **164.926 sản phẩm**: 121.917 Amazon, 41.575 Tiki và 1.434 Shopee.
+Catalog gồm **164.926 sản phẩm**: 121.917 Amazon, 41.575 Tiki và 1.434 Shopee. Ảnh Amazon được ghép theo ASIN từ metadata nguồn; lần nhập trên máy phát triển ghi nhận **121.902 sản phẩm có ảnh**. Ảnh/review Tiki được bổ sung theo mã sản phẩm và lưu nguồn cùng thời điểm truy xuất.
 
-- Giá hiển thị là giá ghi nhận trong dataset, không phải cam kết giá bán hiện tại.
-- Dataset gốc thiếu toàn bộ giá Shopee và review Tiki. Không tự điền giá hoặc tạo đánh giá giả.
-- Ảnh/review Tiki được bổ sung theo mã sản phẩm từ nguồn Tiki khi truy cập được, lưu nguồn và thời điểm lấy. Đây là thông tin của trang bán hiện tại, không phải review lịch sử của dataset.
-- Shopee dùng ảnh có sẵn. Amazon ưu tiên ảnh có nguồn từ metadata gốc, khớp chính xác ASIN; nếu không có ảnh phù hợp thì ghi rõ chưa có ảnh.
-- Tìm kiếm và hội thoại hiện dùng xử lý Python. Qwen, FAISS và BPR có phần thí nghiệm/artifact nhưng **chưa được nối để chạy trong server**. Hồ sơ sở thích được lưu, chưa dùng để cá nhân hoá bằng BPR.
-- Chưa có thêm sản phẩm mới, kiểm duyệt review, chuỗi lịch sử giá hoặc quy cách đóng gói chuẩn hoá.
+### Nhập ảnh Amazon
 
-API key OpenAI không tự bổ sung giá và review còn thiếu; cần nguồn dữ liệu thật của nơi bán.
-
-### Bổ sung ảnh Amazon và giá có nguồn
-
-`import_amazon_images.py` đọc cột ASIN/ảnh của metadata gốc [Amazon Reviews 2023](https://huggingface.co/datasets/McAuley-Lab/Amazon-Reviews-2023/tree/main/raw_meta_Electronics) qua HTTP range, không tải toàn bộ các cột dữ liệu. Cần `pyarrow` và kết nối mạng:
+Tiện ích đọc cột ASIN và ảnh từ metadata Amazon Reviews 2023 qua HTTP range. Chuẩn bị catalog, cài phụ thuộc rồi chạy:
 
 ```powershell
+python -m pip install pyarrow
 python import_amazon_images.py B0C1H1Q3C1 B07LG5WBTS
 python import_amazon_images.py --all
 ```
 
-Giá Shopee không có trong nguồn gốc. Khi có file giá từ shop, dùng CSV gồm các cột `product_id,price,currency,source_url,recorded_at`; mã sản phẩm phải khớp catalog, giá phải dương, tiền tệ USD/VND, nguồn là URL và thời điểm là ISO 8601 kèm múi giờ. Kiểm tra trước rồi nhập:
+### Nhập giá có nguồn
+
+Chuẩn bị CSV gồm `product_id,price,currency,source_url,recorded_at`. Mã sản phẩm khớp catalog, giá dương, tiền tệ USD/VND, nguồn là URL và thời điểm theo ISO 8601 có múi giờ.
 
 ```powershell
 python import_product_prices.py prices.csv --check
 python import_product_prices.py prices.csv
 ```
 
-Giá được lưu thành các phiên bản Knowledge Editing có nguồn, không sửa CSV gốc. Giao dịch nhập được hoàn tác toàn bộ nếu xảy ra xung đột. Tính hợp lệ của file không đồng nghĩa đã xác minh nội dung trang nguồn; người cung cấp file chịu trách nhiệm đối chiếu giá và đúng sản phẩm.
-
-Câu chọn mẫu tốt nhất trong danh sách trước không chạy tìm kiếm mới. Khi không có kết quả, điều kiện tìm mới vẫn được giữ cho câu nối tiếp, thay vì quay về ngân sách cũ. Đây là xử lý các dạng hội thoại có kiểm thử, chưa phải khả năng hiểu mọi câu hỏi tự do bằng LLM.
-
-Lần bổ sung ngày 03/10/2026: đã có ảnh metadata khớp ASIN cho **121.902/121.917 sản phẩm Amazon**; 15 mã không tìm được ảnh trong nguồn Electronics nên vẫn để trống. Kiểm thử với câu “sản phẩm nào tốt nhất trong 5 cái bạn vừa gửi” và câu giải thích tiếp theo đã đạt; trình duyệt đã kiểm tra ảnh Amazon hiển thị thực tế. **Giá Shopee vẫn chưa được bổ sung**, do chưa có file giá/nguồn shop.
+Giá được lưu thành các phiên bản Knowledge Editing có bằng chứng. Việc nhập thực hiện trong một giao dịch để bảo đảm tính nhất quán khi có xung đột.
 
 ## Kiểm thử
+
+Chạy kiểm thử backend:
 
 ```powershell
 python -m unittest -v test_agent_extensions.py
 ```
 
-Kiểm thử dùng dữ liệu giả lập và SQLite tạm, không sửa dataset gốc. Bộ kiểm thử gồm phân quyền tài khoản, bộ lọc giá/dung lượng, top 5, sản phẩm tương tự, ngữ cảnh, review cache, fallback và Knowledge Editing.
+Bộ kiểm thử sử dụng dữ liệu giả lập và SQLite tạm, bao gồm phân quyền, bộ lọc, top 5, sản phẩm tương tự, ngữ cảnh, review cache, xử lý lỗi và Knowledge Editing.
 
-`test_browser_smoke.py` cần thêm gói `websocket-client`, app chạy ở cổng 8781 và trình duyệt có CDP ở cổng 9223. File này kiểm tra thao tác giao diện; không phải điều kiện để chạy app.
+Kiểm thử trình duyệt dùng `test_browser_smoke.py`, cần gói `websocket-client`, app ở cổng 8781 và trình duyệt có CDP ở cổng 9223:
 
-Các kiểm thử chức năng không thay thế đánh giá chất lượng mô hình, Recall/NDCG hoặc đánh giá câu trả lời tiếng Việt.
+```powershell
+python -m pip install websocket-client
+python test_browser_smoke.py
+```
+
+## Hạn chế
+
+- Kết quả tư vấn phụ thuộc phạm vi, chất lượng và thời điểm ghi nhận của dữ liệu; giá hiển thị được hiểu theo nguồn và thời điểm tương ứng.
+- Khả năng giữ ngữ cảnh tập trung vào các dạng câu hỏi mua sắm được xử lý và kiểm thử. Với yêu cầu phức tạp, diễn đạt rõ loại sản phẩm và điều kiện giúp tăng độ chính xác.
+- Mức độ đầy đủ của ảnh và review phụ thuộc nguồn dữ liệu cùng khả năng truy cập dịch vụ bên ngoài.
+- Ứng dụng phục vụ nghiên cứu và thử nghiệm; các notebook là môi trường thực nghiệm riêng. Kiểm thử chức năng được sử dụng cùng đánh giá chất lượng khuyến nghị và câu trả lời khi đánh giá toàn bộ đề tài.
